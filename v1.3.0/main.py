@@ -39,14 +39,14 @@ class LoyaltyLogParser(QMainWindow):
 
             # Создаём файл, если его нет
             if not version_file.exists():
-                version_file.write_text("1.0.0", encoding="utf-8")
+                version_file.write_text("1.3.0", encoding="utf-8")
 
             version = version_file.read_text().strip()
             print(f"[DEBUG] Версия: {version}")
             return version
         except Exception as e:
             print(f"[DEBUG] Ошибка чтения версии: {e}")
-            return "1.0.0"
+            return "1.3.0"
 
     def _update_version_display(self):
         """Обновляет отображение версии в интерфейсе"""
