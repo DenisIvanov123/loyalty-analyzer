@@ -39,7 +39,7 @@ class LoyaltyLogParser(QMainWindow):
 
             # Создаём файл, если его нет
             if not version_file.exists():
-                version_file.write_text("1.2.0", encoding="utf-8")
+                version_file.write_text("1.3.0", encoding="utf-8")
 
             # Читаем версию
             version = version_file.read_text().strip()
@@ -47,7 +47,7 @@ class LoyaltyLogParser(QMainWindow):
             return version
         except Exception as e:
             print(f"[DEBUG] Ошибка чтения версии: {e}")
-            return "1.2.0"
+            return "1.3.0"
 
     def apply_dark_theme(self):
         """Применение тёмной темы"""
