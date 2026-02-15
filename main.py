@@ -1,18 +1,17 @@
-# main.py — исправленная версия с правильным чтением версии
+
 import re
 import sys
 import shutil
 import time
-import os  # Добавлен для отладки
 from pathlib import Path
 from PyQt6.QtWidgets import (
     QApplication, QMainWindow, QVBoxLayout, QHBoxLayout, QWidget,
     QPushButton, QLabel, QLineEdit, QTextEdit, QFileDialog,
     QProgressBar, QMessageBox, QGroupBox, QTabWidget
 )
-from PyQt6.QtCore import Qt, QTimer, QCoreApplication
+from PyQt6.QtCore import Qt, QTimer
 from PyQt6.QtGui import QPalette, QColor
-from updater import HTTPUpdateChecker, HTTPUpdater
+from updater import GitHubUpdateChecker, GitHubUpdater
 
 
 class LoyaltyLogParser(QMainWindow):
@@ -25,32 +24,37 @@ class LoyaltyLogParser(QMainWindow):
         self.loyalty_trace_log_path = None
         self.last_correlation_id = None
         self.last_loyalty_trace = None
+
+        # Читаем версию из локального файла
         self.current_version = self._read_version()
 
         self.apply_dark_theme()
         self.init_ui()
 
     def _read_version(self) -> str:
-        """Читает версию из директории приложения (где находится main.py)"""
+        """Читает версию из файла в текущей директории"""
         try:
-            # Определяем директорию приложения
-            app_dir = Path(QCoreApplication.applicationFilePath()).parent.resolve()
+            app_dir = Path.cwd()
             version_file = app_dir / "version.txt"
 
             # Создаём файл, если его нет
             if not version_file.exists():
                 version_file.write_text("1.2.0", encoding="utf-8")
 
-            # Читаем версию
             version = version_file.read_text().strip()
-            print(f"[DEBUG] Текущая версия прочитана из: {version_file} = {version}")
+            print(f"[DEBUG] Версия: {version}")
             return version
         except Exception as e:
             print(f"[DEBUG] Ошибка чтения версии: {e}")
             return "1.2.0"
 
+    def _update_version_display(self):
+        """Обновляет отображение версии в интерфейсе"""
+        self.current_version = self._read_version()
+        self.version_label.setText(f"Текущая версия: <b>{self.current_version}</b>")
+
     def apply_dark_theme(self):
-        """Применение тёмной темы"""
+        """Применяет тёмную тему к приложению"""
         app = QApplication.instance()
         dark_palette = QPalette()
 
@@ -85,6 +89,7 @@ class LoyaltyLogParser(QMainWindow):
         """)
 
     def init_ui(self):
+        """Инициализация интерфейса"""
         self.tabs = QTabWidget()
         self.tabs.setTabPosition(QTabWidget.TabPosition.North)
 
@@ -99,11 +104,11 @@ class LoyaltyLogParser(QMainWindow):
         self.setCentralWidget(self.tabs)
 
     def create_parser_tab(self):
-        """Вкладка анализа логов"""
+        """Создаёт вкладку анализа логов"""
         parser_tab = QWidget()
         layout = QVBoxLayout()
 
-        # Выбор файлов
+        # Группа выбора файлов
         file_group = QGroupBox("Выбор файлов логов")
         file_layout = QVBoxLayout()
         self.full_log_label = QLabel("Файл full.log не выбран")
@@ -118,7 +123,7 @@ class LoyaltyLogParser(QMainWindow):
         file_layout.addWidget(self.select_trace_log_btn)
         file_group.setLayout(file_layout)
 
-        # Поиск по телефону
+        # Группа поиска по телефону
         phone_group = QGroupBox("Поиск по номеру телефона")
         phone_layout = QVBoxLayout()
         self.phone_input = QLineEdit()
@@ -130,7 +135,7 @@ class LoyaltyLogParser(QMainWindow):
         phone_layout.addWidget(self.search_btn)
         phone_group.setLayout(phone_layout)
 
-        # Поиск по заказу
+        # Группа поиска по заказу
         order_group = QGroupBox("Поиск по номеру заказа")
         order_layout = QVBoxLayout()
         self.order_input = QLineEdit()
@@ -142,7 +147,7 @@ class LoyaltyLogParser(QMainWindow):
         order_layout.addWidget(self.search_by_order_btn)
         order_group.setLayout(order_layout)
 
-        # Результаты
+        # Группа результатов
         result_group = QGroupBox("Результаты поиска")
         result_layout = QVBoxLayout()
         self.correlation_result = QTextEdit()
@@ -160,7 +165,7 @@ class LoyaltyLogParser(QMainWindow):
         result_layout.addWidget(self.copy_btn)
         result_group.setLayout(result_layout)
 
-        # Прогресс
+        # Прогресс-бар
         self.progress_bar = QProgressBar()
 
         layout.addWidget(file_group)
@@ -173,11 +178,11 @@ class LoyaltyLogParser(QMainWindow):
         return parser_tab
 
     def create_updater_tab(self):
-        """Вкладка автообновления — минималистичная версия"""
+        """Создаёт вкладку автообновления"""
         tab = QWidget()
         layout = QVBoxLayout()
 
-        # Версия
+        # Информация о версии
         version_group = QGroupBox("Информация о версии")
         version_layout = QVBoxLayout()
         self.version_label = QLabel(f"Текущая версия: <b>{self.current_version}</b>")
@@ -185,8 +190,8 @@ class LoyaltyLogParser(QMainWindow):
         version_layout.addWidget(self.version_label)
         version_group.setLayout(version_layout)
 
-        # Проверка и установка
-        update_group = QGroupBox("Автообновление")
+        # Проверка и установка обновлений
+        update_group = QGroupBox("Автообновление через GitHub")
         update_layout = QVBoxLayout()
         self.check_btn = QPushButton("🔍 Проверить обновления")
         self.check_btn.clicked.connect(self.check_for_updates)
@@ -201,7 +206,8 @@ class LoyaltyLogParser(QMainWindow):
         self.changelog_view = QTextEdit()
         self.changelog_view.setReadOnly(True)
         self.changelog_view.setPlaceholderText(
-            "После проверки здесь появится список изменений новой версии."
+            "После проверки здесь появится список изменений новой версии.\n\n"
+            "Репозиторий: github.com/DenisIvanov123/loyalty-analyzer"
         )
         self.changelog_view.setMaximumHeight(150)
 
@@ -226,15 +232,19 @@ class LoyaltyLogParser(QMainWindow):
         return tab
 
     def check_for_updates(self):
-        """Проверка обновлений через локальный сервер"""
+        """Проверка обновлений через GitHub"""
+        # Обновляем версию перед проверкой
+        self._update_version_display()
+
         self.check_btn.setEnabled(False)
         self.update_btn.setVisible(False)
         self.progress_bar_update.setVisible(True)
         self.progress_bar_update.setValue(30)
-        self.update_status.setText("Подключение к серверу обновлений...")
+        self.update_status.setText("Подключение к репозиторию...")
         self.update_status.setStyleSheet("color: #2196F3;")
 
-        self.update_checker = HTTPUpdateChecker(base_url="http://127.0.0.1/updates/")
+        # Создаём поток проверки обновлений
+        self.update_checker = GitHubUpdateChecker()
         self.update_checker.update_available.connect(self.on_update_available)
         self.update_checker.no_update.connect(self.on_no_update)
         self.update_checker.error.connect(self.on_update_error)
@@ -242,6 +252,7 @@ class LoyaltyLogParser(QMainWindow):
         self.update_checker.start()
 
     def on_update_available(self, new_version: str, changelog: str):
+        """Вызывается, когда доступна новая версия"""
         self.update_status.setText(f"✅ Доступна версия {new_version}")
         self.update_status.setStyleSheet("color: #4CAF50; font-weight: bold;")
         self.changelog_view.setPlainText(changelog)
@@ -252,12 +263,14 @@ class LoyaltyLogParser(QMainWindow):
         self.progress_bar_update.setValue(100)
 
     def on_no_update(self):
+        """Вызывается, когда обновлений нет"""
         self.update_status.setText("✅ Обновлений не найдено")
         self.update_status.setStyleSheet("color: #888;")
         self.changelog_view.setPlainText("Установлена последняя версия")
         self.progress_bar_update.setVisible(False)
 
     def on_update_error(self, error_msg: str):
+        """Вызывается при ошибке проверки"""
         self.update_status.setText(f"❌ {error_msg}")
         self.update_status.setStyleSheet("color: #f44336;")
         self.progress_bar_update.setVisible(False)
@@ -269,6 +282,7 @@ class LoyaltyLogParser(QMainWindow):
         if not version:
             return
 
+        # Подтверждение установки
         reply = QMessageBox.question(
             self, "Подтверждение",
             f"Установить обновление до версии {version}?\n\n"
@@ -281,19 +295,18 @@ class LoyaltyLogParser(QMainWindow):
             self.check_btn.setEnabled(False)
             self.update_btn.setEnabled(False)
             self.progress_bar_update.setValue(50)
-            self.update_status.setText("Установка обновления...")
+            self.update_status.setText("Скачивание обновления...")
             self.update_status.setStyleSheet("color: #2196F3;")
 
-            success, msg = HTTPUpdater.download_and_apply_update(
-                version,
-                base_url="http://127.0.0.1/updates/"
-            )
+            # Скачиваем и устанавливаем обновление
+            success, msg = GitHubUpdater.download_and_apply_update(version)
 
             if success:
-                self.update_status.setText("✅ Обновление установлено. Перезапуск...")
+                self.update_status.setText("✅ Обновление установлено. Перезапуск через 2 сек...")
                 self.update_status.setStyleSheet("color: #4CAF50; font-weight: bold;")
                 self.progress_bar_update.setValue(100)
-                QTimer.singleShot(1500, HTTPUpdater.restart_app)
+                # Перезапускаем через 2 секунды
+                QTimer.singleShot(2000, GitHubUpdater.restart_app)
             else:
                 self.update_status.setText(f"❌ Ошибка: {msg}")
                 self.update_status.setStyleSheet("color: #f44336;")
@@ -303,6 +316,7 @@ class LoyaltyLogParser(QMainWindow):
 
     # === Основная логика анализа логов ===
     def select_file(self, log_type):
+        """Выбор файла лога"""
         file_path, _ = QFileDialog.getOpenFileName(
             self, f"Выберите {log_type}.log", "", "Логи (*.log);;Все файлы (*)"
         )
@@ -316,6 +330,7 @@ class LoyaltyLogParser(QMainWindow):
             self.clear_results()
 
     def search_data(self):
+        """Поиск по номеру телефона"""
         if not self.full_log_path or not self.loyalty_trace_log_path:
             self.show_error("Сначала выберите оба файла логов")
             return
@@ -327,6 +342,7 @@ class LoyaltyLogParser(QMainWindow):
 
         digits_only_input = re.sub(r'\D', '', phone_input)
 
+        # Валидация номера телефона
         if len(digits_only_input) == 11:
             if digits_only_input.startswith('8'):
                 phone_number_for_search = '7' + digits_only_input[1:]
@@ -347,6 +363,7 @@ class LoyaltyLogParser(QMainWindow):
         try:
             with open(self.full_log_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
+                # Поиск correlationId по номеру телефона
                 search_pattern = rf'{re.escape(phone_number_for_search)}.*?CorrelationId:\s*([a-f0-9-]+)'
                 matches = re.finditer(search_pattern, content, re.DOTALL | re.IGNORECASE)
 
@@ -366,6 +383,7 @@ class LoyaltyLogParser(QMainWindow):
             self.show_error(f"Ошибка: {str(e)}")
 
     def search_data_by_order(self):
+        """Поиск по номеру заказа"""
         if not self.full_log_path or not self.loyalty_trace_log_path:
             self.show_error("Сначала выберите оба файла логов")
             return
@@ -381,6 +399,7 @@ class LoyaltyLogParser(QMainWindow):
         try:
             with open(self.full_log_path, 'r', encoding='utf-8', errors='ignore') as f:
                 content = f.read()
+                # Поиск correlationId по номеру заказа
                 order_pattern = rf'Order\s+{re.escape(order_number)}.*?CorrelationId:\s*([a-f0-9-]+)'
                 matches = re.finditer(order_pattern, content, re.DOTALL | re.IGNORECASE)
 
@@ -401,9 +420,11 @@ class LoyaltyLogParser(QMainWindow):
             self.show_error(f"Ошибка: {str(e)}")
 
     def _find_loyalty_trace_by_correlation_id(self, correlation_id):
+        """Поиск записи LoyaltyTrace по correlationId"""
         try:
             with open(self.loyalty_trace_log_path, 'r', encoding='utf-8', errors='ignore') as trace_file:
                 trace_content = trace_file.read()
+                # Поиск всех записей LoyaltyTrace
                 trace_entries = re.findall(r'(LoyaltyTrace:.*?)(?=\nLoyaltyTrace:|\Z)', trace_content, re.DOTALL)
 
                 last_trace = None
@@ -413,6 +434,7 @@ class LoyaltyLogParser(QMainWindow):
                         break
 
                 if last_trace:
+                    # Извлекаем только код из записи
                     last_trace_clean = last_trace.split("\n")[0].split("LoyaltyTrace:")[1].strip()
                     self.last_loyalty_trace = last_trace_clean
                     self.trace_result.setText(f"\n{self.last_loyalty_trace}")
@@ -426,11 +448,14 @@ class LoyaltyLogParser(QMainWindow):
             self.show_error(f"Ошибка чтения loyaltyTrace.log: {str(e)}")
 
     def _on_trace_found(self):
+        """Вызывается, когда запись найдена"""
         if self.last_loyalty_trace:
+            # Копируем в буфер обмена
             QApplication.clipboard().setText(self.last_loyalty_trace.strip())
         self.progress_bar.setValue(100)
 
     def _update_results_ui(self, correlation_id, search_type):
+        """Обновление интерфейса с результатами"""
         if correlation_id:
             self.last_correlation_id = correlation_id
             self.correlation_result.setText(f"Найден correlationId ({search_type}):\n{correlation_id}")
@@ -440,6 +465,7 @@ class LoyaltyLogParser(QMainWindow):
             self.trace_result.setText("")
 
     def copy_results(self):
+        """Копирование результата в буфер обмена"""
         if self.last_loyalty_trace:
             QApplication.clipboard().setText(self.last_loyalty_trace.strip())
             self.show_info("LoyaltyTrace скопирован в буфер обмена")
@@ -447,6 +473,7 @@ class LoyaltyLogParser(QMainWindow):
             self.show_warning("Нет данных для копирования")
 
     def clear_results(self):
+        """Очистка результатов"""
         self.last_correlation_id = None
         self.last_loyalty_trace = None
         self.correlation_result.clear()
@@ -454,24 +481,28 @@ class LoyaltyLogParser(QMainWindow):
         self.progress_bar.setValue(0)
 
     def show_error(self, message):
+        """Показать ошибку"""
         QMessageBox.critical(self, "Ошибка", message)
 
     def show_warning(self, message):
+        """Показать предупреждение"""
         QMessageBox.warning(self, "Внимание", message)
 
     def show_info(self, message):
+        """Показать информацию"""
         QMessageBox.information(self, "Информация", message)
 
 
 if __name__ == "__main__":
-    # Добавляем отладочную информацию
-    print("=" * 50)
-    print(f"Текущая рабочая директория: {os.getcwd()}")
-    print(f"Директория приложения: {Path(QCoreApplication.applicationFilePath()).parent}")
-    print("=" * 50)
-
     app = QApplication(sys.argv)
     app.setStyle('Fusion')
+
+    # Отладочная информация
+    print("=" * 50)
+    print(f"Текущая рабочая директория: {Path.cwd()}")
+    print(f"Путь к запущенному скрипту: {Path(sys.argv[0]).resolve()}")
+    print("=" * 50)
+
     window = LoyaltyLogParser()
     window.show()
     sys.exit(app.exec())
